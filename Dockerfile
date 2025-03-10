@@ -11,7 +11,14 @@ RUN mvn clean package -DskipTests
 # Tomcat 배포 스테이지
 FROM tomcat:10-jdk17-temurin
 
+LABEL maintainer="EPL Team Recommender"
+LABEL version="1.0"
+LABEL description="An AI-powered EPL team recommendation application"
+
 COPY --from=builder /app/target/*.war /usr/local/tomcat/webapps/ROOT.war
+
+# Ensure proper setup for environment variables
+ENV CATALINA_OPTS="-Dfile.encoding=UTF-8"
 
 EXPOSE 8080
 

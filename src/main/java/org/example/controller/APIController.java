@@ -20,28 +20,56 @@ public class APIController extends HttpServlet {
     // 의존성 주입, 싱글턴 패턴을 기반으로 한
     final APIService apiService = APIService.getInstance();;
     final Logger logger = Logger.getLogger(APIController.class.getName());
+
     @Override
     public void init() throws ServletException {
-        logger.info("APIController init...");
+        logger.info("EPL Team Recommender API Controller init...");
     }
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         req.setCharacterEncoding("UTF-8");
-        // ?prompt=점메추&model=gpt
+
+        // Extract prompt and model from request parameters
         String prompt = req.getParameter("prompt");
         String modelParam = req.getParameter("model");
-        ModelType model = ModelType.valueOf(modelParam);
-        // GROQ_LLAMA, TOGETHER_LLAMA
-        resp.setContentType("application/json; application/json");
+
+        // Validate parameters to prevent errors
+        if (prompt == null || prompt.trim().isEmpty()) {
+            handleErrorResponse(resp, "Prompt cannot be empty");
+            return;
+        }
+
+        if (modelParam == null || modelParam.trim().isEmpty()) {
+            handleErrorResponse(resp, "Model parameter cannot be empty");
+            return;
+        }
+
+        try {
+            ModelType model = ModelType.valueOf(modelParam);
+            resp.setContentType("application/json");
+            resp.setCharacterEncoding("UTF-8");
+
+            PrintWriter out = resp.getWriter();
+            APIParam apiParam = new APIParam(prompt, model);
+
+            try {
+                out.println(apiService.callAPI(apiParam));
+            } catch (Exception e) {
+                logger.severe("Error calling API: " + e.getMessage());
+                handleErrorResponse(resp, "Error processing your request: " + e.getMessage());
+            }
+        } catch (IllegalArgumentException e) {
+            logger.warning("Invalid model type: " + modelParam);
+            handleErrorResponse(resp, "Invalid model type specified");
+        }
+    }
+
+    private void handleErrorResponse(HttpServletResponse resp, String message) throws IOException {
+        resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+        resp.setContentType("application/json");
         resp.setCharacterEncoding("UTF-8");
         PrintWriter out = resp.getWriter();
-        APIParam apiParam = new APIParam(prompt, model);
-        try {
-            out.println(apiService.callAPI(apiParam));
-        } catch (Exception e) {
-            resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
-            out.println(e.getMessage());
-        }
+        out.println("{\"error\": \"" + message + "\"}");
     }
 }

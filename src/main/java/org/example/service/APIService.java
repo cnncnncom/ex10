@@ -1,5 +1,6 @@
 package org.example.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.cdimascio.dotenv.Dotenv;
 import org.example.model.APIParam;
@@ -17,24 +18,25 @@ import java.util.Map;
 public class APIService {
     private static final APIService instance = new APIService();
     private final HttpClient httpClient = HttpClient.newHttpClient();
+    private final Dotenv dotenv = Dotenv.load();
     private final String groqToken;
     private final String togetherToken;
     private final String groqGuide;
     private final String togetherGuide;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public static APIService getInstance() {
         return instance;
     }
 
     private APIService() {
-        Dotenv dotenv = Dotenv.configure().ignoreIfMissing().load();
         groqToken = dotenv.get("GROQ_KEY");
         togetherToken = dotenv.get("TOGETHER_KEY");
         groqGuide = dotenv.get("GROQ_GUIDE");
         togetherGuide = dotenv.get("TOGETHER_GUIDE");
     }
 
-    public String callAPI(APIParam apiParam) throws Exception {
+    public String callAPI(APIParam apiParam) throws IOException, InterruptedException, JsonProcessingException {
         String url;
         String token;
         String instruction;
@@ -49,37 +51,37 @@ public class APIService {
                 token = togetherToken;
                 instruction = togetherGuide;
             }
-            default -> throw new Exception("Unsupported platform");
+            default -> throw new IllegalArgumentException("Unsupported platform: " + apiParam.model().platform);
         }
 
-        String body = """
-                {
-                         "messages": [
-                           {
-                             "role": "system",
-                             "content": "%s"
-                           },
-                           {
-                             "role": "user",
-                             "content": "%s"
-                           }
-                         ],
-                         "model": "%s"
-                       }
-                """.formatted(instruction, apiParam.prompt(), apiParam.model().name);
+        String body = objectMapper.writeValueAsString(createRequestBody(instruction, apiParam.prompt(), apiParam.model().name));
+
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .POST(HttpRequest.BodyPublishers.ofString(body))
-                .header("Authorization", "Bearer %s".formatted(token))
+                .header("Authorization", "Bearer " + token)
                 .header("Content-Type", "application/json")
                 .build();
+
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        String responseBody = response.body();
-        ObjectMapper objectMapper = new ObjectMapper();
-        ModelResponse modelResponse = objectMapper.readValue(responseBody, ModelResponse.class);
+        ModelResponse modelResponse = objectMapper.readValue(response.body(), ModelResponse.class);
         String content = modelResponse.choices().get(0).message().content();
-        Map<String, String> map = new HashMap<>();
-        map.put("content", content);
-        return objectMapper.writeValueAsString(map);
+
+        Map<String, String> resultMap = new HashMap<>();
+        resultMap.put("content", content);
+        return objectMapper.writeValueAsString(resultMap);
+    }
+
+    private Map<String, Object> createRequestBody(String instruction, String prompt, String modelName) {
+        Map<String, Object> requestBody = new HashMap<>();
+        Map<String, String> systemMessage = new HashMap<>();
+        systemMessage.put("role", "system");
+        systemMessage.put("content", instruction);
+        Map<String, String> userMessage = new HashMap<>();
+        userMessage.put("role", "user");
+        userMessage.put("content", prompt);
+        requestBody.put("messages", new Map[]{systemMessage, userMessage});
+        requestBody.put("model", modelName);
+        return requestBody;
     }
 }
